@@ -80,7 +80,9 @@ details.hist summary{cursor:pointer;font-weight:700;color:var(--green)}
 details.hist ul{padding-left:18px;margin:10px 0}
 details.hist li{margin:4px 0;font-size:.92rem}
 details.hist small{color:var(--muted)}
-.vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0);pointer-events:none}
+.vh{position:absolute;top:0;left:0;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none}
+label.btn-add,label.b-light,label.slot{position:relative}
+.ver{text-align:center;color:var(--muted);font-size:.78rem;margin:10px 0 0}
 label.btn-add,label.b-light{display:flex;align-items:center;justify-content:center;text-align:center;border-radius:12px;cursor:pointer;margin:4px 0 6px;color:#fff}
 label.b-light{color:var(--ink);margin:0;flex:1;font-weight:700;min-height:44px}
 label.slot{cursor:pointer}
@@ -101,22 +103,21 @@ label.slot{cursor:pointer}
     <input type="text" id="unidad" autocomplete="off">
   </fieldset>
 
-  <label class="btn-add" id="btnAgregar" for="fileMulti" role="button" tabindex="0">Agregar fotos</label>
+  <label class="btn-add" id="btnAgregar" role="button" tabindex="0">Agregar fotos<input type="file" id="fileMulti" accept="image/*" multiple class="vh" tabindex="-1"></label>
   <p class="hint">Puedes escoger varias a la vez. Se reparten de 4 en 4 por hoja, en el orden en que las marques. También puedes tocar una casilla vacía de cualquier hoja y escoger hasta 4 fotos para llenarla. Toca una foto para cambiarla, quitarla o moverla.</p>
-  <input type="file" id="fileMulti" accept="image/*" multiple class="vh" tabindex="-1">
-  <input type="file" id="fileOne" accept="image/*" multiple class="vh" tabindex="-1">
 
   <div id="hojas"></div>
   <button class="btn-hoja" id="btnHoja">+ Agregar hoja en blanco</button>
   <details class="hist" id="hist"><summary id="histTit">Evidencias ya descargadas</summary><ul id="histList"></ul><button class="x" id="btnHistBorrar">Borrar historial</button></details>
   <button class="reset" id="btnReset">Empezar de nuevo (borra todo)</button>
+  <p class="ver">Versión 3</p>
 </main>
 
 <div class="bar" id="bar"><div class="in"><button class="btn-dl" id="btnDescargar">Descargar Word</button></div></div>
 <div class="selbar" id="selbar">
   <p>Toca otra casilla para mover o intercambiar esta foto.</p>
   <div class="in">
-    <label class="b-light" id="sCambiar" for="fileOne" role="button" tabindex="0">Cambiar</label>
+    <label class="b-light" id="sCambiar" role="button" tabindex="0">Cambiar<input type="file" id="fileOne" accept="image/*" multiple class="vh" tabindex="-1"></label>
     <button class="b-red" id="sQuitar">Quitar</button>
     <button class="b-light" id="sListo">Listo</button>
   </div>
@@ -263,6 +264,12 @@ async function agregarVarias(files){
   if (primera){ const el = document.querySelector('[data-hid="' + primera.id + '"]'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 }
 
+// ---------- posición de la pantalla (Android a veces recarga la página al abrir la galería) ----------
+function guardarScroll(){ try { sessionStorage.setItem('evScroll', String(window.scrollY)); } catch(e){} }
+document.addEventListener('visibilitychange', () => { if (document.hidden) guardarScroll(); });
+window.addEventListener('pagehide', guardarScroll);
+try { history.scrollRestoration = 'manual'; } catch(e){}
+
 // ---------- render ----------
 function url(id){ if(!urls.has(id)){ const b = mem.fotos.get(id); if(!b) return ''; urls.set(id, URL.createObjectURL(b)); } return urls.get(id); }
 const completa = h => h.tema.trim() && h.fecha && h.rango.trim() && h.fotos.every(Boolean);
@@ -292,7 +299,13 @@ function render(){
     h.fotos.forEach((f, i) => {
       const vacioSinSel = !f && !sel;
       const b = document.createElement(vacioSinSel ? 'label' : 'button'); b.className = 'slot' + (f ? ' lleno' : '');
-      if (vacioSinSel) { b.htmlFor = 'fileOne'; b.tabIndex = 0; b.setAttribute('role','button'); }
+      if (vacioSinSel) {
+        b.tabIndex = 0; b.setAttribute('role','button');
+        const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.className = 'vh'; inp.tabIndex = -1;
+        inp.addEventListener('click', ev => { ev.stopPropagation(); guardarScroll(); });
+        inp.addEventListener('change', async () => { if (inp.files && inp.files.length){ await colocar(inp.files, {h, i}); render(); } });
+        b.appendChild(inp);
+      }
       b.setAttribute('aria-label', 'Foto ' + (i+1) + ' de la hoja ' + (hi+1));
       if (f) { const im = document.createElement('img'); im.src = url(f); im.alt=''; b.appendChild(im); }
       else b.textContent = '+ Foto ' + (i+1);
@@ -324,7 +337,7 @@ async function tocarSlot(h, i){
     sel = null; await guardarEstado(); render(); aviso('Foto movida'); return;
   }
   if (h.fotos[i]) { sel = {h, i}; render(); return; }
-  destinoUno = {h, i}; $('fileOne').value=''; // la etiqueta abre el selector sola
+  // la casilla vacía abre el selector sola (tiene su propio input)
 }
 $('sListo').onclick = () => { sel = null; render(); };
 $('sQuitar').onclick = async () => { const {h,i} = sel; await borrarFoto(h.fotos[i]); h.fotos[i]=null; sel=null; await guardarEstado(); render(); };
@@ -420,6 +433,7 @@ $('btnDescargar').onclick = async () => {
   try { if ('serviceWorker' in navigator && !/claude|anthropic/.test(location.hostname)) navigator.serviceWorker.register('sw.js'); } catch(e){}
   $('comunidad').value = estado.fijos.comunidad || ''; $('unidad').value = estado.fijos.unidad || '';
   render();
+  try { const s = +sessionStorage.getItem('evScroll'); if (s) requestAnimationFrame(() => window.scrollTo(0, s)); } catch(e){}
 })();
 </script>
 </body>
